@@ -36,6 +36,8 @@ class SaleOrderLine(models.Model):
         )
         errors = []
         groups = {}
+        if not previous_product_uom_qty:
+            previous_product_uom_qty = {}
         for line in self:
             if line.state != "sale" or line.product_id.type not in ("consu", "product"):
                 continue
@@ -49,10 +51,10 @@ class SaleOrderLine(models.Model):
             # Group the sales order lines with same procurement group
             # according to the group key
             group_id = line.procurement_group_id or False
-            for l in line.order_id.order_line:
-                g_id = l.procurement_group_id or False
+            for order_line in line.order_id.order_line:
+                g_id = order_line.procurement_group_id or False
                 if g_id:
-                    groups[l._get_procurement_group_key()] = g_id
+                    groups[order_line._get_procurement_group_key()] = g_id
             if not group_id:
                 group_id = groups.get(line._get_procurement_group_key())
 
@@ -83,6 +85,7 @@ class SaleOrderLine(models.Model):
 
             values = line._prepare_procurement_values(group_id=group_id)
             product_qty = line.product_uom_qty - qty
+            product_qty_uom = product_qty
 
             procurement_uom = line.product_uom
             quant_uom = line.product_id.uom_id
@@ -111,6 +114,9 @@ class SaleOrderLine(models.Model):
                     )
                 )
                 self.env["procurement.group"].run(procurements)
+                # We store the procured quantity in the UoM of the line to avoid
+                # duplicated procurements, specially for dropshipping and kits.
+                previous_product_uom_qty[line.id] = product_qty_uom
             except UserError as error:
                 errors.append(error.name)
         if errors:
